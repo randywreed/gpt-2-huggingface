@@ -1,7 +1,7 @@
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %%
-from IPython import get_ipython
+#from IPython import get_ipython
 
 # %% [markdown]
 # # Generate Gpt-2 Examples #
@@ -39,14 +39,14 @@ output_file="results.csv"
 # %%
 all_seq=[]
 results=[]
-
+gen_num=0
 
 # %%
 import torch
 #print(torch.__version__)
 #print(torch.cuda.device_count())
 import argparse
-paraser=argparse.ArgumentParser()
+paraser=argparse.ArgumentParser(description="multi gpu huggingface gpt2 generator")
 paraser.add_argument("--prompt",help="prompt to begin response with")
 paraser.add_argument("--length",type=int,default=500,help="length of response (default=500)")
 paraser.add_argument("--num_of_responses",type=int,default=20,help="number of response to generate, sb divisible by 5, will gen 5 on each gpu")
@@ -58,7 +58,9 @@ def return_results(tokenizer, encoded_prompt, outputs, all_seq):
     generated_sequences=[]
     total_sequence=""
     for generated_sequence_idx, generated_sequence in enumerate(outputs):
-            print("=== GENERATED SEQUENCE {} ===".format(generated_sequence_idx + 1))
+            global gen_num
+            gen_num+=1
+            print("=== GENERATED SEQUENCE {} ===".format(gen_num))
             generated_sequence = generated_sequence.tolist()
             #print(generated_sequence)
             # Decode text
@@ -70,7 +72,7 @@ def return_results(tokenizer, encoded_prompt, outputs, all_seq):
 
             # Add the prompt at the beginning of the sequence. Remove the excess text that was used for pre-processing
             total_sequence = (
-                prompt_text + text[len(tokenizer.decode(encoded_prompt[0], clean_up_tokenization_spaces=True)) :]
+                args.prompt + text[len(tokenizer.decode(encoded_prompt[0], clean_up_tokenization_spaces=True)) :]
             )
 
             generated_sequences.append(total_sequence)
@@ -98,7 +100,7 @@ def run_gpt2(gpu, prompt_text,response_length,num_of_responses,all_seq):
     encoded_prompt=tokenizer.encode(prompt_text, add_special_tokens=True,return_tensors="pt")
     encoded_prompt = encoded_prompt.to(device)
 
-    outputs = model.module.generate(encoded_prompt,response_length,temperature=.8,num_return_sequences=num_of_responses,repetition_penalty=85,do_sample=True,top_k=80,top_p=.85 )
+    outputs = model.generate(encoded_prompt,response_length,temperature=.8,num_return_sequences=num_of_responses,repetition_penalty=85,do_sample=True,top_k=80,top_p=.85,eos_token_id=50256 )
     if len(outputs.shape) > 2:
         outputs.squeeze_()
     return_results(tokenizer, encoded_prompt, outputs,all_seq)
@@ -124,7 +126,7 @@ with ThreadPoolExecutor(max_workers=gpus) as executor:
         for i in range (gpus):
             print('sending to cuda:',str(i))
             #args=("cuda:"+str(i),prompt_text,response_length,num_of_responses,all_seq))
-            gptresult.append(executor.submit(run_gpt2,"cuda:"+str(i),args.prompt,args.response_length,5,all_seq))
+            gptresult.append(executor.submit(run_gpt2,"cuda:"+str(i),args.prompt,args.length,5,all_seq))
         for future in concurrent.futures.as_completed(gptresult):
             print('result=',future.result())
         gptresult=[]
@@ -168,7 +170,7 @@ else:
 with open (output_file, append_flag) as csvfile:
     writer=csv.writer(csvfile)
     for i in all_seq:
-        writer.writerow([prompt_text, i])
+        writer.writerow([args.prompt, i])
     
 
 
